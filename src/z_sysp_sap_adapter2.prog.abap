@@ -226,7 +226,7 @@ FORM downloadsysparencydump.
           CHANGING
             data_tab = it_progdir ).
       CATCH cx_root INTO e_text2.
-        text2 = e_text->get_text( ).
+        text2 = e_text2->get_text( ).
         MESSAGE text2 TYPE 'I' DISPLAY LIKE 'E'.
     ENDTRY.
   ENDIF.

@@ -23,15 +23,23 @@ SELECTION-SCREEN END OF BLOCK b1.
 
 SELECTION-SCREEN BEGIN OF BLOCK bsysp WITH FRAME TITLE tblocksy.
   SELECTION-SCREEN BEGIN OF LINE.
-    SELECTION-SCREEN COMMENT 5(18) tsysjobs.
+    SELECTION-SCREEN COMMENT 5(40) tsysjobs.
     PARAMETERS psysjobs AS CHECKBOX DEFAULT 'X'.
   SELECTION-SCREEN END OF LINE.
   SELECTION-SCREEN BEGIN OF LINE.
-    SELECTION-SCREEN COMMENT 5(18) tsysprog.
+    SELECTION-SCREEN COMMENT 5(40) tsysprog.
     PARAMETERS psysprog AS CHECKBOX DEFAULT 'X'.
   SELECTION-SCREEN END OF LINE.
   SELECTION-SCREEN BEGIN OF LINE.
-    SELECTION-SCREEN COMMENT 5(18) tsyslog.
+    SELECTION-SCREEN COMMENT 5(40) tsystnap.
+    PARAMETERS psystnap AS CHECKBOX.
+  SELECTION-SCREEN END OF LINE.
+  SELECTION-SCREEN BEGIN OF LINE.
+    SELECTION-SCREEN COMMENT 5(40) tsysvers.
+    PARAMETERS psysvers AS CHECKBOX DEFAULT 'X'.
+  SELECTION-SCREEN END OF LINE.
+  SELECTION-SCREEN BEGIN OF LINE.
+    SELECTION-SCREEN COMMENT 5(40) tsyslog.
     PARAMETERS psyslog AS CHECKBOX.
   SELECTION-SCREEN END OF LINE.
 SELECTION-SCREEN END OF BLOCK bsysp.
@@ -44,7 +52,9 @@ INITIALIZATION.
   tblocksy = 'Sysparency Data'.
   tsysjobs = 'Jobs'.
   tsysprog = 'Program structure'.
+  tsystnap = 'TNAPR (Processing programs for output)'.
   tsyslog = 'Verbose Log'.
+  tsysvers = 'System Version'.
 
 START-OF-SELECTION.
 
@@ -228,6 +238,61 @@ FORM downloadsysparencydump.
       CATCH cx_root INTO e_text2.
         text2 = e_text2->get_text( ).
         MESSAGE text2 TYPE 'I' DISPLAY LIKE 'E'.
+    ENDTRY.
+  ENDIF.
+
+  IF psystnap = 'X'.
+    DATA: e_text3        TYPE REF TO cx_root,
+          it_tnapr_dyn   TYPE REF TO data,
+          text3          TYPE string,
+          tnaprfilename  TYPE string.
+    
+    FIELD-SYMBOLS: <it_tnapr> TYPE STANDARD TABLE.
+    
+    TRY.
+        " Use dynamic SQL to avoid compilation error if TNAPR table doesn't exist
+        CREATE DATA it_tnapr_dyn TYPE STANDARD TABLE OF ('TNAPR').
+        ASSIGN it_tnapr_dyn->* TO <it_tnapr>.
+        
+        SELECT *
+          INTO TABLE <it_tnapr>
+          FROM ('TNAPR').
+        
+        CONCATENATE lv_target_path '/SysparencyTNAPRExport.sysp' INTO tnaprfilename.
+        cl_gui_frontend_services=>gui_download(
+          EXPORTING
+            filename = tnaprfilename
+            filetype = 'DAT'
+            codepage = '4110'
+          CHANGING
+            data_tab = <it_tnapr> ).
+      CATCH cx_root INTO e_text3.
+        text3 = e_text3->get_text( ).
+        MESSAGE text3 TYPE 'I' DISPLAY LIKE 'E'.
+    ENDTRY.
+  ENDIF.
+
+  IF psysvers = 'X'.
+    DATA: e_text4   TYPE REF TO cx_root,
+          it_cvers  TYPE TABLE OF cvers,
+          text4     TYPE string.
+    TRY.
+        SELECT *
+          INTO TABLE it_cvers
+          FROM cvers
+          ORDER BY component.
+        DATA versfilename TYPE string.
+        CONCATENATE lv_target_path '/SysparencyVersionExport.sysp' INTO versfilename.
+        cl_gui_frontend_services=>gui_download(
+          EXPORTING
+            filename = versfilename
+            filetype = 'DAT'
+            codepage = '4110'
+          CHANGING
+            data_tab = it_cvers ).
+      CATCH cx_root INTO e_text4.
+        text4 = e_text4->get_text( ).
+        MESSAGE text4 TYPE 'I' DISPLAY LIKE 'E'.
     ENDTRY.
   ENDIF.
 ENDFORM.

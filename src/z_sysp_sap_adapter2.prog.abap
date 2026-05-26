@@ -246,18 +246,18 @@ FORM downloadsysparencydump.
           it_tnapr_dyn   TYPE REF TO data,
           text3          TYPE string,
           tnaprfilename  TYPE string.
-    
+
     FIELD-SYMBOLS: <it_tnapr> TYPE STANDARD TABLE.
-    
+
     TRY.
         " Use dynamic SQL to avoid compilation error if TNAPR table doesn't exist
         CREATE DATA it_tnapr_dyn TYPE STANDARD TABLE OF ('TNAPR').
         ASSIGN it_tnapr_dyn->* TO <it_tnapr>.
-        
+
         SELECT *
           INTO TABLE <it_tnapr>
           FROM ('TNAPR').
-        
+
         CONCATENATE lv_target_path '/SysparencyTNAPRExport.sysp' INTO tnaprfilename.
         cl_gui_frontend_services=>gui_download(
           EXPORTING

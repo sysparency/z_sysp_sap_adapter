@@ -152,12 +152,12 @@ START-OF-SELECTION.
   ls_result-count    = lv_fugr_tx.
   APPEND ls_result TO lt_result.
 
-  " 3. Transactions
+  " 3. Transactions (reference)
   SELECT COUNT(*) INTO lv_tran FROM tadir
     WHERE pgmid    = 'R3TR'
       AND object   = 'TRAN'
       AND obj_name IN lt_nsp.
-  ls_result-billable = 'X'.
+  ls_result-billable = ' '.
   ls_result-category = 'Transactions (TRAN)'.
   ls_result-count    = lv_tran.
   APPEND ls_result TO lt_result.
@@ -246,7 +246,7 @@ START-OF-SELECTION.
   APPEND ls_result TO lt_result.
 
   " Total potentially billable
-  lv_total = lv_prog + lv_fugr_tx + lv_tran + lv_badi + lv_badi_cl
+  lv_total = lv_prog + lv_fugr_tx + lv_badi + lv_badi_cl
            + lv_exit + lv_ui5 + lv_srvb.
 
 *&---------------------------------------------------------------------*

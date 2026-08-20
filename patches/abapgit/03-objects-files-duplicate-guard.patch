@@ -1,0 +1,23 @@
+diff --git a/src/objects/core/zcl_abapgit_objects_files.clas.abap b/src/objects/core/zcl_abapgit_objects_files.clas.abap
+index 5de62b74..7bcd8b3c 100644
+--- a/src/objects/core/zcl_abapgit_objects_files.clas.abap
++++ b/src/objects/core/zcl_abapgit_objects_files.clas.abap
+@@ -210,6 +210,18 @@ CLASS zcl_abapgit_objects_files IMPLEMENTATION.
+       iv_ext   = iv_ext ).
+     ls_file-data = zcl_abapgit_convert=>string_to_xstring_utf8( iv_string ).
+ 
++    " Sysparency patch: skip duplicate path/filename combinations to avoid
++    " ITAB_DUPLICATE_KEY on the UNIQUE SORTED KEY file_path of mt_files.
++    " Root cause is usually inconsistent source data (e.g. orphaned
++    " language entries in STXH for FORMs); this guard prevents the dump.
++    READ TABLE mt_files TRANSPORTING NO FIELDS
++         WITH KEY file_path
++         COMPONENTS path     = ls_file-path
++                    filename = ls_file-filename.
++    IF sy-subrc = 0.
++      RETURN.
++    ENDIF.
++
+     APPEND ls_file TO mt_files.
+ 
+   ENDMETHOD.

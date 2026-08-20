@@ -1,0 +1,19 @@
+diff --git a/src/objects/zcl_abapgit_object_form.clas.abap b/src/objects/zcl_abapgit_object_form.clas.abap
+index ae0b2571..a0435daf 100644
+--- a/src/objects/zcl_abapgit_object_form.clas.abap
++++ b/src/objects/zcl_abapgit_object_form.clas.abap
+@@ -117,6 +117,14 @@ CLASS zcl_abapgit_object_form IMPLEMENTATION.
+ 
+     lv_tdspras = zcl_abapgit_convert=>conversion_exit_isola_output( is_header-tdspras ).
+ 
++    " Sysparency patch: keep the raw tdspras when ISO conversion is empty,
++    " otherwise different languages collapse to the same file name and the
++    " affected FORM language variants would be refused below - for the
++    " analysis export we prefer keeping the data over strict consistency.
++    IF lv_tdspras IS INITIAL.
++      lv_tdspras = is_header-tdspras.
++    ENDIF.
++
+     " Refuse to serialize inconsistent text-header data. An empty tdspras
+     " or a tdspras that ISO conversion cannot map (typically because the
+     " language is not maintained in T002) would otherwise produce a file

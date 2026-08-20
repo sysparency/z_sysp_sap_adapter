@@ -1,0 +1,47 @@
+diff --git a/src/xml/zcl_abapgit_xml_output.clas.abap b/src/xml/zcl_abapgit_xml_output.clas.abap
+index 7a70cb44..9606abf4 100644
+--- a/src/xml/zcl_abapgit_xml_output.clas.abap
++++ b/src/xml/zcl_abapgit_xml_output.clas.abap
+@@ -48,9 +48,12 @@ CLASS ZCL_ABAPGIT_XML_OUTPUT IMPLEMENTATION.
+ 
+     DATA: li_node TYPE REF TO if_ixml_node,
+           li_doc  TYPE REF TO if_ixml_document,
+-          lt_stab TYPE abap_trans_srcbind_tab.
++          lt_stab TYPE abap_trans_srcbind_tab,
++          lo_type TYPE REF TO cl_abap_typedescr,
++          lv_str  TYPE string.
+ 
+     FIELD-SYMBOLS: <ls_stab> LIKE LINE OF lt_stab.
++    FIELD-SYMBOLS: <any>     TYPE any.
+ 
+ 
+     ASSERT NOT iv_name IS INITIAL.
+@@ -61,7 +64,27 @@ CLASS ZCL_ABAPGIT_XML_OUTPUT IMPLEMENTATION.
+ 
+     APPEND INITIAL LINE TO lt_stab ASSIGNING <ls_stab>.
+     <ls_stab>-name = iv_name.
+-    GET REFERENCE OF ig_data INTO <ls_stab>-value.
++
++    " Sysparency patch: pass P/NUMC values to the transformation as a string
++    " without blanks - a value like ' 00000' (leading blank) would otherwise
++    " raise CX_SY_CONVERSION_NO_NUMBER inside CALL TRANSFORMATION id.
++    lo_type = cl_abap_typedescr=>describe_by_data( ig_data ).
++
++    CASE lo_type->type_kind.
++      WHEN cl_abap_typedescr=>typekind_packed
++        OR cl_abap_typedescr=>typekind_num.
++
++        ASSIGN ig_data TO <any>.
++        lv_str = |{ <any> }|.
++        CONDENSE lv_str NO-GAPS.
++        IF lv_str IS INITIAL.
++          lv_str = '0'.
++        ENDIF.
++        GET REFERENCE OF lv_str INTO <ls_stab>-value.
++
++      WHEN OTHERS.
++        GET REFERENCE OF ig_data INTO <ls_stab>-value.
++    ENDCASE.
+ 
+     li_doc = cl_ixml=>create( )->create_document( ).
+ 

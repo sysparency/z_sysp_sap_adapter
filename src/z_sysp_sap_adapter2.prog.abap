@@ -32,7 +32,7 @@ SELECTION-SCREEN BEGIN OF BLOCK bsysp WITH FRAME TITLE tblocksy.
   SELECTION-SCREEN END OF LINE.
   SELECTION-SCREEN BEGIN OF LINE.
     SELECTION-SCREEN COMMENT 5(40) tsystnap.
-    PARAMETERS psystnap AS CHECKBOX.
+    PARAMETERS psystnap AS CHECKBOX DEFAULT 'X'.
   SELECTION-SCREEN END OF LINE.
   SELECTION-SCREEN BEGIN OF LINE.
     SELECTION-SCREEN COMMENT 5(40) tsysvers.
@@ -48,7 +48,7 @@ INITIALIZATION.
   tblocksy = 'Sysparency Data'.
   tsysjobs = 'Jobs'.
   tsysprog = 'Program structure'.
-  tsystnap = 'TNAPR (Processing programs for output)'.
+  tsystnap = 'Print control (TNAPR, T496F/T496R)'.
   tsysvers = 'System Version'.
 
 START-OF-SELECTION.
@@ -58,6 +58,8 @@ START-OF-SELECTION.
     lv_text            TYPE c LENGTH 200,
     ls_local_settings  TYPE zif_abapgit_persistence=>ty_repo-local_settings,
     lo_dot_abapgit     TYPE REF TO zcl_abapgit_dot_abapgit,
+    lo_serialize       TYPE REF TO zcl_abapgit_serialize,
+    lt_local_files     TYPE zif_abapgit_definitions=>ty_files_item_tt,
     lv_zip_xstring     TYPE xstring,
     lo_frontend_serv   TYPE REF TO zif_abapgit_frontend_services,
     lv_default         TYPE string,
@@ -75,10 +77,18 @@ START-OF-SELECTION.
     lv_pkg_msg_before  TYPE i,
     lv_pkg_msg_after   TYPE i,
     lv_pkg_status      TYPE string,
-    lv_safe_text       TYPE string.
+    lv_safe_text       TYPE string,
+    lx_init            TYPE REF TO cx_root.
 
-  " this will initialize ZABAPGIT in dictionary
-  zcl_abapgit_migrations=>run( ).
+  " this will initialize ZABAPGIT in dictionary; on systems set to
+  " 'not modifiable' the DDIC change is rejected - the export itself is
+  " read-only, so warn and continue instead of dumping
+  TRY.
+      zcl_abapgit_migrations=>run( ).
+    CATCH cx_root INTO lx_init.
+      lv_text = lx_init->get_text( ).
+      WRITE: / 'WARNING: abapGit dictionary init failed:', lv_text.
+  ENDTRY.
 
   CONCATENATE pfolder '/SysparencyExport_' sy-datlo '_' sy-timlo INTO lv_target_path.
 
@@ -121,12 +131,22 @@ START-OF-SELECTION.
         lo_dot_abapgit = zcl_abapgit_dot_abapgit=>build_default( ).
         lo_dot_abapgit->set_folder_logic( 'FULL' ).
 
-        lv_zip_xstring = zcl_abapgit_zip=>export(
-         is_local_settings = ls_local_settings
-         iv_package        = iv_package
-         iv_show_log       = abap_false
-         io_dot_abapgit    = lo_dot_abapgit
-         ii_log            = li_run_log ).
+        " zcl_abapgit_zip=>export offers no way to inject a caller-owned log
+        " (it creates its own internally), so replicate its body here:
+        " serialize into our run log, then zip the file list. This replaces
+        " the local ii_log patch the previous build carried in zcl_abapgit_zip.
+        CREATE OBJECT lo_serialize
+          EXPORTING
+            io_dot_abapgit    = lo_dot_abapgit
+            is_local_settings = ls_local_settings.
+
+        lt_local_files = lo_serialize->files_local(
+          iv_package = iv_package
+          ii_log     = li_run_log ).
+        FREE lo_serialize.
+
+        lv_zip_xstring = zcl_abapgit_zip=>encode_files( lt_local_files ).
+        FREE lt_local_files.
 
         CONCATENATE lv_target_path '/' lv_default '.zip' INTO lv_zipfile_path.
 
@@ -323,9 +343,21 @@ FORM downloadsysparencydump USING iv_target_path TYPE string.
             data_tab = <it_tnapr> ).
 
       CATCH cx_root INTO e_text3.
+        " No popup: a missing TNAPR (system without output control) must not
+        " interrupt the run - log, list and continue.
         text3 = e_text3->get_text( ).
-        MESSAGE text3 TYPE 'I' DISPLAY LIKE 'E'.
+        li_run_log->add_warning( |TNAPR export skipped: { text3 }| ).
+        WRITE: / 'TNAPR export skipped:', text3.
     ENDTRY.
+
+    " Same topic, same checkbox: PP shop-paper print control (OPK8) - T496R =
+    " which report prints which list, T496F = which SAPScript/PDF form the list
+    " uses - form assignments that never appear in TNAPR (NAST). Access is
+    " dynamic like TNAPR above (systems without PP tables just log and skip),
+    " exported with a header line of the field names so the analyzer reads
+    " columns by name instead of relying on release-dependent indices.
+    PERFORM download_table_with_header USING 'T496F' '/SysparencyT496FExport.sysp' iv_target_path.
+    PERFORM download_table_with_header USING 'T496R' '/SysparencyT496RExport.sysp' iv_target_path.
   ENDIF.
 
   IF psysvers = 'X'.
@@ -356,4 +388,83 @@ FORM downloadsysparencydump USING iv_target_path TYPE string.
     ENDTRY.
   ENDIF.
 
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*& Generic table download with a leading header line of the component
+*& names, so the analyzer can locate columns by name instead of guessing
+*& release-dependent indices. Fully dynamic (CREATE DATA / dynamic FROM)
+*& so the report stays compilable on systems without the table.
+*&---------------------------------------------------------------------*
+FORM download_table_with_header USING iv_table       TYPE string
+                                      iv_filename    TYPE string
+                                      iv_target_path TYPE string.
+  DATA: lx_error    TYPE REF TO cx_root,
+        lv_error    TYPE string,
+        lr_data     TYPE REF TO data,
+        lo_struct   TYPE REF TO cl_abap_structdescr,
+        ls_comp     TYPE abap_compdescr,
+        lt_lines    TYPE TABLE OF string,
+        lv_line     TYPE string,
+        lv_value    TYPE string,
+        lv_filepath TYPE string.
+  FIELD-SYMBOLS: <lt_table> TYPE STANDARD TABLE,
+                 <ls_row>   TYPE any,
+                 <lv_comp>  TYPE any.
+
+  TRY.
+      CREATE DATA lr_data TYPE STANDARD TABLE OF (iv_table).
+      ASSIGN lr_data->* TO <lt_table>.
+
+      SELECT *
+        INTO TABLE <lt_table>
+        FROM (iv_table).
+
+      lo_struct ?= cl_abap_typedescr=>describe_by_name( iv_table ).
+      CLEAR lv_line.
+      LOOP AT lo_struct->components INTO ls_comp.
+        IF lv_line IS INITIAL.
+          lv_line = ls_comp-name.
+        ELSE.
+          CONCATENATE lv_line ls_comp-name INTO lv_line
+            SEPARATED BY cl_abap_char_utilities=>horizontal_tab.
+        ENDIF.
+      ENDLOOP.
+      APPEND lv_line TO lt_lines.
+
+      LOOP AT <lt_table> ASSIGNING <ls_row>.
+        CLEAR lv_line.
+        DO.
+          ASSIGN COMPONENT sy-index OF STRUCTURE <ls_row> TO <lv_comp>.
+          IF sy-subrc <> 0.
+            EXIT.
+          ENDIF.
+          lv_value = <lv_comp>.
+          IF sy-index = 1.
+            lv_line = lv_value.
+          ELSE.
+            CONCATENATE lv_line lv_value INTO lv_line
+              SEPARATED BY cl_abap_char_utilities=>horizontal_tab.
+          ENDIF.
+        ENDDO.
+        APPEND lv_line TO lt_lines.
+      ENDLOOP.
+
+      CONCATENATE iv_target_path iv_filename INTO lv_filepath.
+
+      cl_gui_frontend_services=>gui_download(
+        EXPORTING
+          filename = lv_filepath
+          filetype = 'ASC'
+          codepage = '4110'
+        CHANGING
+          data_tab = lt_lines ).
+
+    CATCH cx_root INTO lx_error.
+      " No popup: systems without the table (e.g. no PP customizing) must
+      " not interrupt the run - log, list and continue.
+      lv_error = lx_error->get_text( ).
+      li_run_log->add_warning( |{ iv_table } export skipped: { lv_error }| ).
+      WRITE: / iv_table, 'export skipped:', lv_error.
+  ENDTRY.
 ENDFORM.

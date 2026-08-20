@@ -1,2 +1,5 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Patch files must keep LF endings, otherwise git apply fails against the LF-based abapGit sources
+*.patch -text

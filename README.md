@@ -14,6 +14,9 @@ Build was generated using [abapmerge](https://github.com/larshp/abapmerge)
 2. In your SAP® system in SE38, create the program Z_SYSP_SAP_ADAPTER2_STANDALONE with the downloaded ABAP® code and start it.
 3. Under Package you can select which files you want to download (e.g. Z* for all packages in the Z namespace).
 4. Run the report to download your ABAP® programs.
+5. "Mask user names (GDPR)" is on by default: the run log and the job export (last changed by)
+   then carry `MASKED` instead of SAP user names. abapGit already
+   strips user and date fields from the serialized objects. Untick only if your data policy allows names.
    If the error "sy-subrc 15" occurs, check in the SAP GUI options -> Security -> Security Settings whether a rule prevents access to the local directory.
 
 ## Standalone build

@@ -27,16 +27,16 @@ SELECTION-SCREEN BEGIN OF BLOCK bsysp WITH FRAME TITLE tblocksy.
     PARAMETERS psysjobs AS CHECKBOX DEFAULT 'X'.
   SELECTION-SCREEN END OF LINE.
   SELECTION-SCREEN BEGIN OF LINE.
-    SELECTION-SCREEN COMMENT 5(40) tsysprog.
-    PARAMETERS psysprog AS CHECKBOX DEFAULT 'X'.
-  SELECTION-SCREEN END OF LINE.
-  SELECTION-SCREEN BEGIN OF LINE.
     SELECTION-SCREEN COMMENT 5(40) tsystnap.
     PARAMETERS psystnap AS CHECKBOX DEFAULT 'X'.
   SELECTION-SCREEN END OF LINE.
   SELECTION-SCREEN BEGIN OF LINE.
     SELECTION-SCREEN COMMENT 5(40) tsysvers.
     PARAMETERS psysvers AS CHECKBOX DEFAULT 'X'.
+  SELECTION-SCREEN END OF LINE.
+  SELECTION-SCREEN BEGIN OF LINE.
+    SELECTION-SCREEN COMMENT 5(40) tsysmask.
+    PARAMETERS psysmask AS CHECKBOX DEFAULT 'X'.
   SELECTION-SCREEN END OF LINE.
 SELECTION-SCREEN END OF BLOCK bsysp.
 
@@ -47,9 +47,9 @@ INITIALIZATION.
   tppath = 'Folder'.
   tblocksy = 'Sysparency Data'.
   tsysjobs = 'Jobs'.
-  tsysprog = 'Program structure'.
   tsystnap = 'Print control (TNAPR, T496F/T496R)'.
   tsysvers = 'System Version'.
+  tsysmask = 'Mask user names (GDPR)'.
 
 START-OF-SELECTION.
 
@@ -78,6 +78,7 @@ START-OF-SELECTION.
     lv_pkg_msg_after   TYPE i,
     lv_pkg_status      TYPE string,
     lv_safe_text       TYPE string,
+    lv_run_user        TYPE string,
     lx_init            TYPE REF TO cx_root.
 
   " this will initialize ZABAPGIT in dictionary; on systems set to
@@ -95,9 +96,20 @@ START-OF-SELECTION.
   " Always collect a run-wide log so we can persist it as a file at the
   " end of the run. This is the audit artifact that lets us reconstruct
   " skipped or failed packages later.
+  " GDPR: with masking on (default) no personal SAP user name leaves the system -
+  " not in the run log and not in the job export (TBTCO-LASTCHNAME). Column
+  " positions stay unchanged (value 'MASKED'),
+  " so the analyzer reads old and new exports alike. abapGit itself already
+  " strips the user/date fields from the serialized objects.
+  IF psysmask = 'X'.
+    lv_run_user = 'MASKED'.
+  ELSE.
+    lv_run_user = sy-uname.
+  ENDIF.
+
   CREATE OBJECT li_run_log TYPE zcl_abapgit_log.
   li_run_log->set_title( |Sysparency Adapter Run { sy-datlo } { sy-timlo }| ).
-  li_run_log->add_info( |Run started { sy-datlo } { sy-timlo } by { sy-uname } on { sy-sysid }/{ sy-mandt }| ).
+  li_run_log->add_info( |Run started { sy-datlo } { sy-timlo } by { lv_run_user } on { sy-sysid }/{ sy-mandt }| ).
   li_run_log->add_info( |Package selection: { sopack-low }..{ sopack-high } (sign={ sopack-sign }, option={ sopack-option })| ).
 
 * load all matching packages
@@ -265,6 +277,13 @@ FORM downloadsysparencydump USING iv_target_path TYPE string.
         WHERE j~status = 'S' OR j~status = 'Y' OR j~status = 'Z' OR j~status = 'R'
       ORDER BY j~jobname DESCENDING.
 
+    FIELD-SYMBOLS <ls_job> TYPE t_datatab.
+    IF psysmask = 'X'.
+      LOOP AT it_datatab ASSIGNING <ls_job>.
+        <ls_job>-lastchname = 'MASKED'.
+      ENDLOOP.
+    ENDIF.
+
     DATA: e_text      TYPE REF TO cx_root,
           jobfilename TYPE string,
           text        TYPE string.
@@ -287,34 +306,8 @@ FORM downloadsysparencydump USING iv_target_path TYPE string.
 
   ENDIF.
 
-  IF psysprog = 'X'.
-    DATA: e_text2     TYPE REF TO cx_root,
-          it_progdir  TYPE TABLE OF progdir,
-          text2       TYPE string.
-
-    TRY.
-        SELECT *
-          INTO TABLE it_progdir
-          FROM progdir
-          WHERE name LIKE 'Z%' OR name LIKE 'Y%'
-          ORDER BY NAME STATE.
-
-        DATA progdirfilename TYPE string.
-        CONCATENATE iv_target_path '/SysparencyProgdirExport.sysp' INTO progdirfilename.
-
-        cl_gui_frontend_services=>gui_download(
-          EXPORTING
-            filename = progdirfilename
-            filetype = 'DAT'
-            codepage = '4110'
-          CHANGING
-            data_tab = it_progdir ).
-
-      CATCH cx_root INTO e_text2.
-        text2 = e_text2->get_text( ).
-        MESSAGE text2 TYPE 'I' DISPLAY LIKE 'E'.
-    ENDTRY.
-  ENDIF.
+  " The former PROGDIR export (SysparencyProgdirExport.sysp) is gone since 2026-08-21:
+  " everything the analyzer used from it (APPL, SUBC, status) is in the abapGit prog.xml.
 
   IF psystnap = 'X'.
     DATA: e_text3       TYPE REF TO cx_root,

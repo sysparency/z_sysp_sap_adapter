@@ -4,7 +4,7 @@
 *& Exports the customer's Z/Y packages (abapGit serialization, one zip
 *& per root package) plus jobs, print control and system version for the
 *& Sysparency analysis. Read-only apart from abapGit's own dictionary
-*& initialization. (c) Sysparency - https://www.sysparency.com
+*& initialization. (c) Sysparency GmbH - https://www.sysparency.com
 *&
 *& The standalone build (Z_SYSP_SAP_ADAPTER2_STANDALONE) bundles abapGit,
 *& https://github.com/abapGit/abapGit, merged with abapmerge and carrying

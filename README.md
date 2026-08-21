@@ -39,4 +39,4 @@ from a clean abapGit checkout:
 Adapter is based on [abapGit](https://github.com/abapGit/abapGit), Copyright (c) 2014 abapGit Contributors,
 licensed under the [MIT License](LICENSE-abapGit.txt). The standalone build bundles abapGit; the MIT
 copyright and permission notice is reproduced in the program header and ships as `LICENSE-abapGit.txt`
-in every release zip. The adapter code itself is (c) Sysparency.
+in every release zip. The adapter code itself is (c) Sysparency GmbH.

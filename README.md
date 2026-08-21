@@ -31,8 +31,12 @@ from a clean abapGit checkout:
 4. Delete `src/zabapgit.prog.abap`, `src/zabapgit_forms.prog.abap` and
    `src/zabapgit_password_dialog.prog.abap` (keep all XML files).
 5. Run `npx abapmerge -f src/z_sysp_sap_adapter2.prog.abap -c z_sysp_sap_adapter2_standalone -o z_sysp_sap_adapter2.abap`.
-6. Zip the result and publish it as a new GitHub release (`build-<date>`) — the
-   download links above always point to the latest release.
+6. Zip the result together with `LICENSE-abapGit.txt` (MIT notice of the bundled abapGit code) and
+   publish it as a new GitHub release (`build-<date>`) — the download links above always point
+   to the latest release.
 
 ## Credits and References
-Adapter is based on [abapGit](https://github.com/abapGit/abapGit).
+Adapter is based on [abapGit](https://github.com/abapGit/abapGit), Copyright (c) 2014 abapGit Contributors,
+licensed under the [MIT License](LICENSE-abapGit.txt). The standalone build bundles abapGit; the MIT
+copyright and permission notice is reproduced in the program header and ships as `LICENSE-abapGit.txt`
+in every release zip. The adapter code itself is (c) Sysparency.

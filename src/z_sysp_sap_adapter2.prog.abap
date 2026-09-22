@@ -38,13 +38,18 @@
 *&---------------------------------------------------------------------*
 REPORT z_sysp_sap_adapter2.
 
+" Build stamp of this adapter version. Bump it with every release (see BUILD.md): the run log
+" writes it right after the "Run started" line, so every export folder tells which adapter
+" (and which bundled abapGit) produced it.
+CONSTANTS c_build TYPE string VALUE '2026-09-22'.
+
 TABLES tadiv.
 
 SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE tblock1.
 
   SELECTION-SCREEN BEGIN OF LINE.
     SELECTION-SCREEN COMMENT 1(10) tpack.
-    SELECT-OPTIONS sopack FOR tadiv-devclass DEFAULT 'Z*' OPTION CP.
+    SELECT-OPTIONS sopack FOR tadiv-devclass.
   SELECTION-SCREEN END OF LINE.
 
   SELECTION-SCREEN BEGIN OF LINE.
@@ -84,6 +89,15 @@ INITIALIZATION.
   tsysvers = 'System Version'.
   tsysmask = 'Mask user names (GDPR)'.
 
+  " Default package filter: the customer namespaces Y* and Z*.
+  CLEAR sopack.
+  sopack-sign   = 'I'.
+  sopack-option = 'CP'.
+  sopack-low    = 'Y*'.
+  APPEND sopack.
+  sopack-low    = 'Z*'.
+  APPEND sopack.
+
 START-OF-SELECTION.
 
   DATA:
@@ -112,6 +126,15 @@ START-OF-SELECTION.
     lv_pkg_status      TYPE string,
     lv_safe_text       TYPE string,
     lv_run_user        TYPE string,
+    lv_run_date        TYPE sy-datlo,
+    lv_run_time        TYPE sy-timlo,
+    lv_selection       TYPE string,
+    lv_opt_jobs        TYPE string,
+    lv_opt_print       TYPE string,
+    lv_opt_version     TYPE string,
+    lv_opt_mask        TYPE string,
+    lv_info            TYPE string,
+    ls_sopack          LIKE LINE OF sopack,
     lx_init            TYPE REF TO cx_root.
 
   " this will initialize ZABAPGIT in dictionary; on systems set to
@@ -124,7 +147,11 @@ START-OF-SELECTION.
       WRITE: / 'WARNING: abapGit dictionary init failed:', lv_text.
   ENDTRY.
 
-  CONCATENATE pfolder '/SysparencyExport_' sy-datlo '_' sy-timlo INTO lv_target_path.
+  " One timestamp for the whole run: the export folder, the run-log file inside it and the
+  " log's "Run started" line all carry it, so a log file can always be matched to its folder.
+  lv_run_date = sy-datlo.
+  lv_run_time = sy-timlo.
+  CONCATENATE pfolder '/SysparencyExport_' lv_run_date '_' lv_run_time INTO lv_target_path.
 
   " Always collect a run-wide log so we can persist it as a file at the
   " end of the run. This is the audit artifact that lets us reconstruct
@@ -142,8 +169,34 @@ START-OF-SELECTION.
 
   CREATE OBJECT li_run_log TYPE zcl_abapgit_log.
   li_run_log->set_title( |Sysparency Adapter Run { sy-datlo } { sy-timlo }| ).
-  li_run_log->add_info( |Run started { sy-datlo } { sy-timlo } by { lv_run_user } on { sy-sysid }/{ sy-mandt }| ).
-  li_run_log->add_info( |Package selection: { sopack-low }..{ sopack-high } (sign={ sopack-sign }, option={ sopack-option })| ).
+  li_run_log->add_info( |Run started { lv_run_date } { lv_run_time } by { lv_run_user } on { sy-sysid }/{ sy-mandt }| ).
+  " Provenance lines read by the analyzer (ExportRunLog): adapter build, the program that
+  " actually ran (repo install vs. standalone build), the bundled abapGit release, the
+  " selection-screen options and the full package selection (all rows, not just the first).
+  lv_info = |Adapter build { c_build } ({ sy-repid }), |.
+  lv_info = |{ lv_info }abapGit { zif_abapgit_version=>c_abap_version }|.
+  li_run_log->add_info( lv_info ).
+  PERFORM option_text USING psysjobs CHANGING lv_opt_jobs.
+  PERFORM option_text USING psystnap CHANGING lv_opt_print.
+  PERFORM option_text USING psysvers CHANGING lv_opt_version.
+  PERFORM option_text USING psysmask CHANGING lv_opt_mask.
+  lv_info = |Options: jobs={ lv_opt_jobs }, print_control={ lv_opt_print }, |.
+  lv_info = |{ lv_info }version={ lv_opt_version }, mask_users={ lv_opt_mask }|.
+  li_run_log->add_info( lv_info ).
+  LOOP AT sopack INTO ls_sopack.
+    IF lv_selection IS NOT INITIAL.
+      lv_selection = |{ lv_selection }; |.
+    ENDIF.
+    lv_selection = |{ lv_selection }{ ls_sopack-sign } { ls_sopack-option } { ls_sopack-low }|.
+    IF ls_sopack-high IS NOT INITIAL.
+      lv_selection = |{ lv_selection }..{ ls_sopack-high }|.
+    ENDIF.
+  ENDLOOP.
+  IF lv_selection IS INITIAL.
+    lv_selection = '(none - all packages)'.
+  ENDIF.
+  li_run_log->add_info( |Package selection: { lv_selection }| ).
+  li_run_log->add_info( |Export folder: SysparencyExport_{ lv_run_date }_{ lv_run_time }| ).
 
 * load all matching packages
   DATA it_pks TYPE TABLE OF tadir-devclass.
@@ -200,9 +253,12 @@ START-OF-SELECTION.
             iv_xstr = lv_zip_xstring ).
 
         lv_pkg_msg_after = li_run_log->count( ).
-        lv_pkg_status = |Package { iv_package }: export OK, { lv_pkg_msg_after - lv_pkg_msg_before - 1 } message(s), zip written to { lv_zipfile_path }|.
+        " The run log names the zip relative to the export folder: the log leaves the customer
+        " and the absolute path would carry the local Windows user name even with masking on.
+        lv_pkg_status = |Package { iv_package }: export OK, { lv_pkg_msg_after - lv_pkg_msg_before - 1 } message(s), |.
+        lv_pkg_status = |{ lv_pkg_status }zip written to { lv_default }.zip|.
         li_run_log->add_info( lv_pkg_status ).
-        WRITE / lv_pkg_status.
+        WRITE: / lv_pkg_status, '->', lv_zipfile_path.
 
       CATCH zcx_abapgit_exception INTO lx_error.
         lv_text = lx_error->get_text( ).
@@ -235,7 +291,7 @@ START-OF-SELECTION.
 
   TRY.
       lv_log_xstring = zcl_abapgit_convert=>string_to_xstring_utf8( lv_log_content ).
-      lv_log_path = |{ lv_target_path }/SysparencyExport_{ sy-datlo }_{ sy-timlo }_run.log.csv|.
+      lv_log_path = |{ lv_target_path }/SysparencyExport_{ lv_run_date }_{ lv_run_time }_run.log.csv|.
       lo_frontend_serv = zcl_abapgit_ui_factory=>get_frontend_services( ).
       lo_frontend_serv->file_download(
         iv_path = lv_log_path
@@ -343,47 +399,60 @@ FORM downloadsysparencydump USING iv_target_path TYPE string.
   " everything the analyzer used from it (APPL, SUBC, status) is in the abapGit prog.xml.
 
   IF psystnap = 'X'.
-    DATA: e_text3       TYPE REF TO cx_root,
-          it_tnapr_dyn  TYPE REF TO data,
-          text3         TYPE string,
-          tnaprfilename TYPE string.
-    FIELD-SYMBOLS: <it_tnapr> TYPE STANDARD TABLE.
+    " NAST output control (TNAPR) and the PP shop-paper tables (T496F/T496R) exist only on ERP
+    " cores (component SAP_APPL or S4CORE). CRM, SRM, BW or plain NetWeaver systems have none of
+    " them - say so once as an info line instead of three "type does not exist" warnings.
+    DATA: lv_erp_core TYPE cvers-component,
+          lv_note     TYPE string.
+    SELECT SINGLE component FROM cvers INTO lv_erp_core
+      WHERE component = 'SAP_APPL' OR component = 'S4CORE'.
+    IF sy-subrc <> 0.
+      lv_note = 'Print control export not applicable: no SAP_APPL/S4CORE component on this system'.
+      li_run_log->add_info( |{ lv_note } (TNAPR, T496F, T496R do not exist)| ).
+      WRITE / lv_note.
+    ELSE.
+      DATA: e_text3       TYPE REF TO cx_root,
+            it_tnapr_dyn  TYPE REF TO data,
+            text3         TYPE string,
+            tnaprfilename TYPE string.
+      FIELD-SYMBOLS: <it_tnapr> TYPE STANDARD TABLE.
 
-    TRY.
-        " Use dynamic SQL to avoid compilation error if TNAPR table doesn't exist
-        CREATE DATA it_tnapr_dyn TYPE STANDARD TABLE OF ('TNAPR').
-        ASSIGN it_tnapr_dyn->* TO <it_tnapr>.
+      TRY.
+          " Use dynamic SQL to avoid compilation error if TNAPR table doesn't exist
+          CREATE DATA it_tnapr_dyn TYPE STANDARD TABLE OF ('TNAPR').
+          ASSIGN it_tnapr_dyn->* TO <it_tnapr>.
 
-        SELECT *
-          INTO TABLE <it_tnapr>
-          FROM ('TNAPR').
+          SELECT *
+            INTO TABLE <it_tnapr>
+            FROM ('TNAPR').
 
-        CONCATENATE iv_target_path '/SysparencyTNAPRExport.sysp' INTO tnaprfilename.
+          CONCATENATE iv_target_path '/SysparencyTNAPRExport.sysp' INTO tnaprfilename.
 
-        cl_gui_frontend_services=>gui_download(
-          EXPORTING
-            filename = tnaprfilename
-            filetype = 'DAT'
-            codepage = '4110'
-          CHANGING
-            data_tab = <it_tnapr> ).
+          cl_gui_frontend_services=>gui_download(
+            EXPORTING
+              filename = tnaprfilename
+              filetype = 'DAT'
+              codepage = '4110'
+            CHANGING
+              data_tab = <it_tnapr> ).
 
-      CATCH cx_root INTO e_text3.
-        " No popup: a missing TNAPR (system without output control) must not
-        " interrupt the run - log, list and continue.
-        text3 = e_text3->get_text( ).
-        li_run_log->add_warning( |TNAPR export skipped: { text3 }| ).
-        WRITE: / 'TNAPR export skipped:', text3.
-    ENDTRY.
+        CATCH cx_root INTO e_text3.
+          " No popup: a missing TNAPR (system without output control) must not
+          " interrupt the run - log, list and continue.
+          text3 = e_text3->get_text( ).
+          li_run_log->add_warning( |TNAPR export skipped: { text3 }| ).
+          WRITE: / 'TNAPR export skipped:', text3.
+      ENDTRY.
 
-    " Same topic, same checkbox: PP shop-paper print control (OPK8) - T496R =
-    " which report prints which list, T496F = which SAPScript/PDF form the list
-    " uses - form assignments that never appear in TNAPR (NAST). Access is
-    " dynamic like TNAPR above (systems without PP tables just log and skip),
-    " exported with a header line of the field names so the analyzer reads
-    " columns by name instead of relying on release-dependent indices.
-    PERFORM download_table_with_header USING 'T496F' '/SysparencyT496FExport.sysp' iv_target_path.
-    PERFORM download_table_with_header USING 'T496R' '/SysparencyT496RExport.sysp' iv_target_path.
+      " Same topic, same checkbox: PP shop-paper print control (OPK8) - T496R =
+      " which report prints which list, T496F = which SAPScript/PDF form the list
+      " uses - form assignments that never appear in TNAPR (NAST). Access is
+      " dynamic like TNAPR above (systems without PP tables just log and skip),
+      " exported with a header line of the field names so the analyzer reads
+      " columns by name instead of relying on release-dependent indices.
+      PERFORM download_table_with_header USING 'T496F' '/SysparencyT496FExport.sysp' iv_target_path.
+      PERFORM download_table_with_header USING 'T496R' '/SysparencyT496RExport.sysp' iv_target_path.
+    ENDIF.
   ENDIF.
 
   IF psysvers = 'X'.
@@ -414,6 +483,17 @@ FORM downloadsysparencydump USING iv_target_path TYPE string.
     ENDTRY.
   ENDIF.
 
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*& on/off text of a selection-screen checkbox for the run log
+*&---------------------------------------------------------------------*
+FORM option_text USING iv_flag TYPE c CHANGING cv_text TYPE string.
+  IF iv_flag = 'X'.
+    cv_text = 'on'.
+  ELSE.
+    cv_text = 'off'.
+  ENDIF.
 ENDFORM.
 
 *&---------------------------------------------------------------------*

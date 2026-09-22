@@ -14,11 +14,16 @@ Build was generated using [abapmerge](https://github.com/larshp/abapmerge), see 
 
 2. In your SAP® system in SE38, create the program Z_SYSP_SAP_ADAPTER2_STANDALONE with the downloaded ABAP® code.
    Create it as a **local object (package `$TMP`)**. No transport is required, and objects in `$TMP` are not
-   matched by the default package selection `Z*`, so the adapter does not end up in its own export.   
-   
-3. Under Package you can select which files you want to download (e.g. Z* for all packages in the Z namespace).
+   matched by the default package selection `Y*` / `Z*`, so the adapter does not end up in its own export.
 
-4. Run the report to download your dump.
+3. Under Package you can select which packages you want to download. The default is the customer
+   namespaces `Y*` and `Z*`; narrow or extend the selection as needed.
+
+4. Run the report to download your dump. The export folder `SysparencyExport_<date>_<time>`
+   receives one zip per root package, the `.sysp` data files and the run log
+   `SysparencyExport_<date>_<time>_run.log.csv`. The run log names the adapter build, the bundled
+   abapGit release, the selection-screen options and the package selection, and records every
+   skipped or aborted export - send it along with the export.
 
 5. "Mask user names (GDPR)" is on by default: the run log and the job export (last changed by)
    then carry `MASKED` instead of SAP user names. abapGit already
